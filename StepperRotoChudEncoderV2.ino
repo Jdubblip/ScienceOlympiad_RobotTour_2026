@@ -1,10 +1,3 @@
-// =====================================
-// PICO 2W + TMC2209 — STEPPER WITH FIXED SPEEDS + S-CURVE RAMPS + ENDSCRIPT
-// INDEPENDENT WHEEL DIAMETERS + BRESENHAM SYNC
-// MT6701 ENCODER CLOSED-LOOP CORRECTION
-// =====================================
-
-// LEFT DRIVER
 #define L_STEP 7
 #define L_DIR 8
 #define L_MS1 10
@@ -12,21 +5,14 @@
 
 #include <Wire.h>
 
-// RIGHT DRIVER
 #define R_STEP 6
 #define R_DIR 5
 #define R_MS1 2
 #define R_MS2 3
 
-// BUTTONS
 #define GO_BUTTON 28
 #define STOP_BUTTON 22
 
-// =====================================
-// MT6701 ENCODER CONFIG
-// =====================================
-// Left encoder:  I2C0 (Wire)  — GP20 SDA, GP21 SCL
-// Right encoder: I2C1 (Wire1) — GP26 SDA, GP27 SCL
 #define ENC_LEFT_SDA  20
 #define ENC_LEFT_SCL  21
 #define ENC_RIGHT_SDA 26
@@ -35,9 +21,6 @@
 #define MT6701_ADDR       0x06
 #define MT6701_ANGLE_REG  0x03
 
-// =====================================
-// ROBOT CONSTANTS
-// =====================================
 const float WHEELBASE_CM = 14.525f;
 const float ARC_WHEELBASE_CM = 14.61f;
 const float AimPt_CenterPt_CM = 3.40f;
@@ -55,22 +38,15 @@ const int MICROSTEPS_PER_REV = FULL_STEPS_PER_REV * MICROSTEP_DIVISOR;
 const float LEFT_CM_PER_STEP = LEFT_WHEEL_CIRCUM_CM / (float)MICROSTEPS_PER_REV;
 const float RIGHT_CM_PER_STEP = RIGHT_WHEEL_CIRCUM_CM / (float)MICROSTEPS_PER_REV;
 
-// Encoder: degrees of wheel rotation per cm of travel
 const float LEFT_DEG_PER_CM  = 360.0f / LEFT_WHEEL_CIRCUM_CM;
 const float RIGHT_DEG_PER_CM = 360.0f / RIGHT_WHEEL_CIRCUM_CM;
 
-// =====================================
-// SPEEDS (step delay in us — lower = faster)
-// =====================================
 const int CRUISE_DELAY_US = 80;
 const int BOTTLE_DELAY_US = 120;
 const int TURN_DELAY_US = 150;
 const int TURN_BOTTLE_DELAY_US = 240;
 const double bottleTurnFactor = 1.003;
 
-// =====================================
-// RAMP SETTINGS
-// =====================================
 const float SHORT_RAMP_PERCENT = 35.0f;
 const float LONG_RAMP_PERCENT = 14.0f;
 const float SHORT_THRESHOLD_CM = 50.0f;
@@ -80,15 +56,9 @@ const float START_SPEED = 0.18f;
 const float END_SPEED = 0.21f;
 const int MAX_DELAY_US = 2500;
 
-// =====================================
-// TIMING
-// =====================================
 const float TARGET_TIME_S = 57.0f;
 unsigned long routeStartMs = 0;
 
-// =====================================
-// ARC CONSTANTS
-// =====================================
 const float ARC_RADIUS_CM = 25.0f;
 const int ARC_DELAY_US = 120;
 const int ARC_BOTTLE_DELAY_US = 180;
@@ -96,38 +66,26 @@ const float ARC_DISTANCE_FACTOR = 1.0f;
 const float ARC_BOTTLE_DISTANCE_FACTOR_R = 1.0025f;
 const float ARC_BOTTLE_DISTANCE_FACTOR_L = 1.004f;
 
-// =====================================
-// ODOMETRY
-// =====================================
 float odoX = 0.0f, odoY = 0.0f, odoHeadingDeg = 0.0f;
 
-// =====================================
-// ENCODER CORRECTION SETTINGS
-// =====================================
-const int   CORRECTION_DELAY_US    = 400;   // slow step rate for correction pulses
-const float CORRECTION_DEADBAND_DEG = 1.0f; // ignore encoder errors smaller than this
-const int   MAX_CORRECTION_STEPS   = 80;    // safety cap per correction burst
-const bool  ENCODER_CORRECTION_ON  = true;  // master switch — false to log-only
+const int   CORRECTION_DELAY_US    = 400;
+const float CORRECTION_DEADBAND_DEG = 1.0f;
+const int   MAX_CORRECTION_STEPS   = 80;
+const bool  ENCODER_CORRECTION_ON  = true;
 
-// =====================================
-// ENCODER STATE
-// =====================================
 float encLeftAngleBefore  = 0.0f;
 float encRightAngleBefore = 0.0f;
 float encLeftDelta  = 0.0f;
 float encRightDelta = 0.0f;
 
-// =====================================
-// RUN LOGGING
-// =====================================
 struct MoveLogEntry {
   char  label[16];
   float param;
-  float encLeftDeg;         // actual encoder rotation
+  float encLeftDeg;
   float encRightDeg;
-  float expectedLeftDeg;    // commanded rotation
+  float expectedLeftDeg;
   float expectedRightDeg;
-  int   corrLeftSteps;      // correction steps applied
+  int   corrLeftSteps;
   int   corrRightSteps;
   float odoX, odoY, odoHead;
   float elapsedS;
@@ -139,7 +97,6 @@ int logCount = 0;
 bool runLogReady = false;
 bool runLogPrinted = false;
 
-// Temp storage filled during a move
 float _logExpectedLeftDeg  = 0.0f;
 float _logExpectedRightDeg = 0.0f;
 int   _logCorrLeftSteps    = 0;
@@ -236,9 +193,6 @@ void serviceDeferredLogPrint() {
   }
 }
 
-// =====================================
-// ENCODER FUNCTIONS
-// =====================================
 float readEncoderAngle(TwoWire &bus) {
   bus.beginTransmission(MT6701_ADDR);
   bus.write(MT6701_ANGLE_REG);
@@ -257,7 +211,6 @@ float readEncoderAngle(TwoWire &bus) {
 float readLeftEncoder()  { return readEncoderAngle(Wire);  }
 float readRightEncoder() { return readEncoderAngle(Wire1); }
 
-// Signed angular delta handling 0/360 wraparound
 float angleDelta(float before, float after) {
   float d = after - before;
   while (d > 180.0f)  d -= 360.0f;
@@ -265,13 +218,11 @@ float angleDelta(float before, float after) {
   return d;
 }
 
-// Snapshot encoder positions before a move
 void encSnapshot() {
   encLeftAngleBefore  = readLeftEncoder();
   encRightAngleBefore = readRightEncoder();
 }
 
-// Measure how far each wheel actually rotated since snapshot
 void encMeasure() {
   float leftNow  = readLeftEncoder();
   float rightNow = readRightEncoder();
@@ -279,19 +230,11 @@ void encMeasure() {
   encRightDelta = angleDelta(encRightAngleBefore, rightNow);
 }
 
-// =====================================
-// ENCODER CORRECTION
-// =====================================
-// After a move completes, compare expected wheel rotation (degrees)
-// to what the encoder actually measured. If a wheel under-rotated,
-// drive slow correction steps to make up the difference.
-//
 void correctFromEncoder(float expectedLeftDeg, float expectedRightDeg,
                         int leftDir, int rightDir) {
   _logExpectedLeftDeg  = expectedLeftDeg;
   _logExpectedRightDeg = expectedRightDeg;
 
-  // Read encoder result
   encMeasure();
 
   float actualLeft  = fabsf(encLeftDelta);
@@ -299,16 +242,14 @@ void correctFromEncoder(float expectedLeftDeg, float expectedRightDeg,
   float expLeft     = fabsf(expectedLeftDeg);
   float expRight    = fabsf(expectedRightDeg);
 
-  // Store actual for logging
   _logActualLeftDeg  = actualLeft;
   _logActualRightDeg = actualRight;
 
   if (!ENCODER_CORRECTION_ON) return;
 
-  float errLeft  = expLeft  - actualLeft;   // positive = under-rotated
+  float errLeft  = expLeft  - actualLeft;
   float errRight = expRight - actualRight;
 
-  // Correct left wheel
   if (errLeft > CORRECTION_DEADBAND_DEG) {
     float corrCm = errLeft / LEFT_DEG_PER_CM;
     int steps = cmToStepsLeft(corrCm);
@@ -326,7 +267,6 @@ void correctFromEncoder(float expectedLeftDeg, float expectedRightDeg,
     }
   }
 
-  // Correct right wheel
   if (errRight > CORRECTION_DEADBAND_DEG) {
     float corrCm = errRight / RIGHT_DEG_PER_CM;
     int steps = cmToStepsRight(corrCm);
@@ -345,9 +285,6 @@ void correctFromEncoder(float expectedLeftDeg, float expectedRightDeg,
   }
 }
 
-// =====================================
-// ODOMETRY
-// =====================================
 void resetOdo() {
   odoX = 0; odoY = 0; odoHeadingDeg = 0;
 }
@@ -364,9 +301,6 @@ void updateOdoTurn(float deg) {
   while (odoHeadingDeg < -180) odoHeadingDeg += 360;
 }
 
-// =====================================
-// HELPERS
-// =====================================
 int cmToStepsLeft(float cm)  { return (int)(fabsf(cm) / LEFT_CM_PER_STEP + 0.5f); }
 int cmToStepsRight(float cm) { return (int)(fabsf(cm) / RIGHT_CM_PER_STEP + 0.5f); }
 
@@ -385,9 +319,6 @@ void setMicrostep() {
   digitalWrite(R_MS1, LOW); digitalWrite(R_MS2, LOW);
 }
 
-// =====================================
-// S-CURVE RAMP
-// =====================================
 int rampDelay(int step, int totalSteps, int baseDelayUs, float rampPct) {
   int rampStart = min((int)(totalSteps * rampPct / 100.0f), totalSteps / 3);
   int rampEnd   = min((int)(totalSteps * rampPct / 100.0f), totalSteps / 3);
@@ -410,9 +341,6 @@ int rampDelay(int step, int totalSteps, int baseDelayUs, float rampPct) {
   return baseDelayUs;
 }
 
-// =====================================
-// BRESENHAM DRIVE VARIANTS
-// =====================================
 void driveSynced(int leftSteps, int rightSteps,
                  int leftDir, int rightDir,
                  int baseDelayUs, bool useRamp, float rampPct) {
@@ -548,9 +476,6 @@ void driveSyncedRampDown(int leftSteps, int rightSteps,
   delay(50);
 }
 
-// =====================================
-// MOVEMENT FUNCTIONS — WITH ENCODER CORRECTION
-// =====================================
 const int SPIN_DELAY_US = 80;
 
 void spinL(int steps) {
@@ -646,9 +571,6 @@ void forwardBottle(float cm) {
   logMoveEnd();
 }
 
-// =====================================
-// CHAINED FORWARD VARIANTS (no correction mid-chain)
-// =====================================
 void fru(float cm) {
   int lSteps = cmToStepsLeft(cm);
   int rSteps = cmToStepsRight(cm);
@@ -691,9 +613,6 @@ void frdb(float cm) {
   updateOdoLinear(cm);
 }
 
-// =====================================
-// SPIN TURNS — WITH ENCODER CORRECTION
-// =====================================
 void spinRight(float degrees) {
   logMove("right", degrees);
   float arc = turnArcCm(degrees);
@@ -768,9 +687,6 @@ void spinLeftBottle(float degrees) {
   logMoveEnd();
 }
 
-// =====================================
-// ARC TURNS — STANDALONE (with correction)
-// =====================================
 void als() {
   logMove("arc left", 90);
   float innerR = ARC_RADIUS_CM - (ARC_WHEELBASE_CM / 2.0f);
@@ -807,9 +723,6 @@ void ars() {
   logMoveEnd();
 }
 
-// =====================================
-// ARC RIGHT — CHAINED VARIANTS (no correction mid-chain)
-// =====================================
 void arru() {
   float innerR = ARC_RADIUS_CM - (ARC_WHEELBASE_CM / 2.0f);
   float outerR = ARC_RADIUS_CM + (ARC_WHEELBASE_CM / 2.0f);
@@ -864,9 +777,6 @@ void arrdb() {
   updateOdoTurn(90);
 }
 
-// =====================================
-// ARC LEFT — CHAINED VARIANTS (no correction mid-chain)
-// =====================================
 void alru() {
   float innerR = ARC_RADIUS_CM - (ARC_WHEELBASE_CM / 2.0f);
   float outerR = ARC_RADIUS_CM + (ARC_WHEELBASE_CM / 2.0f);
@@ -921,9 +831,6 @@ void alrdb() {
   updateOdoTurn(-90);
 }
 
-// =====================================
-// ENDSCRIPT
-// =====================================
 void endScript(float cm) {
   logMove("end script", cm);
   float elapsedS = (millis() - routeStartMs) / 1000.0f;
@@ -960,9 +867,6 @@ void endScript(float cm) {
   logMoveEnd();
 }
 
-// =====================================
-// SHORT ALIASES
-// =====================================
 void f(float cm)  { forward(cm); }
 void b(float cm)  { backward(cm); }
 void fb(float cm) { forwardBottle(cm); }
@@ -972,9 +876,6 @@ void lb(float deg){ spinLeftBottle(deg); }
 void rb(float deg){ spinRightBottle(deg); }
 void e(float cm)  { endScript(cm); }
 
-// =====================================
-// ROUTE
-// =====================================
 void route() {
   runLogReady = true;
 
@@ -983,9 +884,6 @@ void route() {
   b(50);
 }
 
-// =====================================
-// SETUP
-// =====================================
 void setup() {
   Serial.begin(115200);
 
@@ -1005,17 +903,14 @@ void setup() {
   digitalWrite(R_STEP, LOW);
   setMicrostep();
 
-  // Init left encoder on I2C0
   Wire.setSDA(ENC_LEFT_SDA);
   Wire.setSCL(ENC_LEFT_SCL);
   Wire.begin();
 
-  // Init right encoder on I2C1
   Wire1.setSDA(ENC_RIGHT_SDA);
   Wire1.setSCL(ENC_RIGHT_SCL);
   Wire1.begin();
 
-  // Verify encoders are responding
   delay(100);
   float testL = readLeftEncoder();
   float testR = readRightEncoder();
@@ -1027,11 +922,7 @@ void setup() {
   else            { Serial.println("NOT FOUND"); }
 }
 
-// =====================================
-// LOOP
-// =====================================
 void loop() {
-  // Wait for button press-release
   while (digitalRead(GO_BUTTON) == LOW) delay(10);
   delay(50);
   while (digitalRead(GO_BUTTON) != LOW) delay(10);
